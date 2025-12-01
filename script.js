@@ -1,221 +1,1050 @@
-// DOM Elements
-const form = document.getElementById('registrationForm');
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const photoOutput = document.getElementById('photoOutput');
-const cameraPreview = document.getElementById('cameraPreview');
-const capturedPhoto = document.getElementById('capturedPhoto');
-const startCameraBtn = document.getElementById('startCamera');
-const captureBtn = document.getElementById('captureBtn');
-const stopCameraBtn = document.getElementById('stopCamera');
-const photoStatus = document.getElementById('photoStatus');
-const formProgress = document.getElementById('formProgress');
-const progressText = document.getElementById('progressText');
-
-// State variables
-let stream = null;
-let photoData = null;
-let formData = {
-    sno: '',
-    date: '',
-    candidateName: '',
-    contactNo: '',
-    batchId: '',
-    trainer: '',
-    photo: ''
-};
-
-// Initialize date to today
-document.getElementById('date').valueAsDate = new Date();
-
-// Calculate form completion percentage
-function calculateFormCompletion() {
-    const fields = [
-        'date',
-        'candidateName', 
-        'contactNo',
-        'batchId',
-        'trainer'
-    ];
-    
-    let completed = 0;
-    fields.forEach(field => {
-        const value = document.getElementById(field).value.trim();
-        if (value) completed++;
-    });
-    
-    // Add photo if captured
-    if (photoData) completed++;
-    
-    const percentage = Math.round((completed / (fields.length + 1)) * 100);
-    formProgress.style.width = `${percentage}%`;
-    formProgress.setAttribute('aria-valuenow', percentage);
-    formProgress.textContent = `${percentage}%`;
-    progressText.textContent = `Form completion: ${percentage}%`;
-    
-    // Update progress bar color
-    if (percentage < 30) {
-        formProgress.className = 'progress-bar bg-danger';
-    } else if (percentage < 70) {
-        formProgress.className = 'progress-bar bg-warning';
-    } else {
-        formProgress.className = 'progress-bar bg-success';
+// Main Application Controller
+class StudentRegistrationApp {
+    constructor() {
+        this.initializeElements();
+        this.initializeState();
+        this.initializeEventListeners();
+        this.loadInitialData();
     }
-}
 
-// Start Camera Function
-async function startCamera() {
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            },
-            audio: false 
+    initializeElements() {
+        // Form Elements
+        this.form = document.getElementById('registrationForm');
+        this.serialNoInput = document.getElementById('serialNo');
+        this.dateInput = document.getElementById('date');
+        this.candidateNameInput = document.getElementById('candidateName');
+        this.contactNoInput = document.getElementById('contactNo');
+        this.batchIdInput = document.getElementById('batchId');
+        this.trainerInput = document.getElementById('trainer');
+        
+        // Camera Elements
+        this.video = document.getElementById('video');
+        this.canvas = document.getElementById('canvas');
+        this.photoOutput = document.getElementById('photoOutput');
+        this.cameraPreview = document.getElementById('cameraPreview');
+        this.capturedPhoto = document.getElementById('capturedPhoto');
+        this.startCameraBtn = document.getElementById('startCamera');
+        this.captureBtn = document.getElementById('captureBtn');
+        this.stopCameraBtn = document.getElementById('stopCamera');
+        this.fileInput = document.getElementById('fileInput');
+        
+        // Status Elements
+        this.formProgress = document.getElementById('formProgress');
+        this.progressText = document.getElementById('progressText');
+        this.photoStatusText = document.getElementById('photoStatusText');
+        this.photoStatus = document.getElementById('photoStatus');
+        
+        // Table Elements
+        this.tableBody = document.getElementById('tableBody');
+        this.tableLoader = document.getElementById('tableLoader');
+        this.noData = document.getElementById('noData');
+        
+        // Filter Elements
+        this.filterFromDate = document.getElementById('filterFromDate');
+        this.filterToDate = document.getElementById('filterToDate');
+        this.filterTrainer = document.getElementById('filterTrainer');
+        this.filterBatch = document.getElementById('filterBatch');
+        
+        // Analytics Elements
+        this.totalStudentsEl = document.getElementById('totalStudents');
+        this.totalTrainersEl = document.getElementById('totalTrainers');
+        this.totalBatchesEl = document.getElementById('totalBatches');
+        this.todayRegistrationsEl = document.getElementById('todayRegistrations');
+        
+        // Modals
+        this.successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        this.errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
+        this.photoModal = new bootstrap.Modal(document.getElementById('photoModal'));
+        
+        // Charts
+        this.batchChart = null;
+        this.monthlyChart = null;
+    }
+
+    initializeState() {
+        this.stream = null;
+        this.photoData = null;
+        this.isCameraActive = false;
+        this.allRecords = [];
+        this.filteredRecords = [];
+        this.uniqueTrainers = new Set();
+        this.uniqueBatches = new Set();
+    }
+
+    initializeEventListeners() {
+        // Form Input Validation
+        this.serialNoInput.addEventListener('input', (e) => this.validateSerialNo(e));
+        this.contactNoInput.addEventListener('input', (e) => this.validateContactNo(e));
+        this.contactNoInput.addEventListener('blur', () => this.validateContactNo());
+        
+        // Form Field Updates
+        const formInputs = ['serialNo', 'date', 'candidateName', 'contactNo', 'batchId', 'trainer'];
+        formInputs.forEach(field => {
+            document.getElementById(field).addEventListener('input', () => this.updateFormCompletion());
         });
-        
-        video.srcObject = stream;
-        video.classList.remove('d-none');
-        cameraPreview.querySelector('.placeholder-text').classList.add('d-none');
-        
-        // Show/Hide buttons
-        startCameraBtn.classList.add('d-none');
-        captureBtn.classList.remove('d-none');
-        stopCameraBtn.classList.remove('d-none');
-        
-        // Update status
-        photoStatus.innerHTML = `
-            <div class="alert alert-success">
-                <i class="fas fa-camera"></i> Camera active. Click "Capture Photo" to take picture.
-            </div>
-        `;
-        
-    } catch (error) {
-        console.error('Camera error:', error);
-        photoStatus.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-triangle"></i> 
-                Camera access denied. Please allow camera permissions or upload a photo.
-            </div>
-        `;
-    }
-}
 
-// Capture Photo Function
-function capturePhoto() {
-    if (!stream) return;
-    
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext('2d');
-    
-    // Draw video frame to canvas
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // Convert to data URL with compression
-    photoData = canvas.toDataURL('image/jpeg', 0.7); // 70% quality
-    photoOutput.src = photoData;
-    
-    // Show captured photo
-    capturedPhoto.style.display = 'flex';
-    video.classList.add('d-none');
-    
-    // Update status
-    photoStatus.innerHTML = `
-        <div class="alert alert-success">
-            <i class="fas fa-check-circle"></i> Photo captured successfully!
-        </div>
-    `;
-    
-    calculateFormCompletion();
-}
+        // Form Submission
+        this.form.addEventListener('submit', (e) => this.handleSubmit(e));
 
-// Stop Camera Function
-function stopCamera() {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
-    
-    video.classList.add('d-none');
-    cameraPreview.querySelector('.placeholder-text').classList.remove('d-none');
-    
-    // Show/Hide buttons
-    startCameraBtn.classList.remove('d-none');
-    captureBtn.classList.add('d-none');
-    stopCameraBtn.classList.add('d-none');
-    
-    // Reset status if no photo captured
-    if (!photoData) {
-        photoStatus.innerHTML = `
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> 
-                Please capture or upload a photo
-            </div>
-        `;
-    }
-}
-
-// Retake Photo Function
-function retakePhoto() {
-    photoData = null;
-    capturedPhoto.style.display = 'none';
-    startCamera();
-}
-
-// Handle File Upload
-function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    if (!file.type.match('image.*')) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Invalid File',
-            text: 'Please upload an image file (JPG, PNG, etc.)'
+        // Camera Events
+        this.video.addEventListener('loadeddata', () => {
+            this.startCameraBtn.style.display = 'none';
+            this.captureBtn.style.display = 'block';
+            this.stopCameraBtn.style.display = 'block';
         });
-        return;
+
+        // Filter Events
+        this.filterFromDate.addEventListener('change', () => this.applyFilters());
+        this.filterToDate.addEventListener('change', () => this.applyFilters());
+        this.filterTrainer.addEventListener('change', () => this.applyFilters());
+        this.filterBatch.addEventListener('change', () => this.applyFilters());
+
+        // Tab Change Events
+        document.getElementById('records-tab').addEventListener('click', () => this.loadRecords());
+        document.getElementById('analytics-tab').addEventListener('click', () => this.updateAnalytics());
     }
-    
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        photoData = e.target.result;
-        photoOutput.src = photoData;
+
+    loadInitialData() {
+        // Set today's date
+        const today = new Date().toISOString().split('T')[0];
+        this.dateInput.value = today;
         
-        // Show captured photo
-        capturedPhoto.style.display = 'flex';
-        video.classList.add('d-none');
-        cameraPreview.querySelector('.placeholder-text').classList.add('d-none');
+        // Set default filter dates (current month)
+        const firstDay = new Date();
+        firstDay.setDate(1);
+        this.filterFromDate.value = firstDay.toISOString().split('T')[0];
+        this.filterToDate.value = today;
         
-        // Update status
-        photoStatus.innerHTML = `
-            <div class="alert alert-success">
-                <i class="fas fa-check-circle"></i> Photo uploaded successfully!
-            </div>
-        `;
+        // Load records from localStorage
+        this.loadFromLocalStorage();
         
-        // Stop camera if running
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-            startCameraBtn.classList.remove('d-none');
-            captureBtn.classList.add('d-none');
-            stopCameraBtn.classList.add('d-none');
+        // Initialize dropdowns
+        this.updateFilterDropdowns();
+        
+        // Update form completion
+        this.updateFormCompletion();
+    }
+
+    // =============== FORM VALIDATION ===============
+
+    validateSerialNo(e) {
+        const serialNo = e.target.value.trim();
+        const errorEl = document.getElementById('serialError');
+        
+        if (!serialNo) {
+            errorEl.classList.add('d-none');
+            return;
+        }
+
+        // Check for duplicates
+        const isDuplicate = this.allRecords.some(record => 
+            record.serialNo.toLowerCase() === serialNo.toLowerCase()
+        );
+
+        if (isDuplicate) {
+            errorEl.classList.remove('d-none');
+            this.serialNoInput.classList.add('is-invalid');
+            this.serialNoInput.classList.remove('is-valid');
+        } else {
+            errorEl.classList.add('d-none');
+            this.serialNoInput.classList.remove('is-invalid');
+            this.serialNoInput.classList.add('is-valid');
         }
         
-        calculateFormCompletion();
-    };
-    reader.readAsDataURL(file);
-}
+        this.updateFormCompletion();
+    }
 
-// Add New Batch Option
-function addNewBatch() {
-    const batchInput = document.getElementById('batchId');
-    const batchValue = batchInput.value.trim();
-    
-    if (batchValue) {
-        // Add to datalist if not already present
+    validateContactNo(e) {
+        let value = e ? e.target.value : this.contactNoInput.value;
+        
+        // Remove non-numeric characters
+        value = value.replace(/[^0-9]/g, '');
+        
+        // Limit to 10 digits
+        if (value.length > 10) {
+            value = value.substring(0, 10);
+        }
+        
+        this.contactNoInput.value = value;
+        
+        const errorEl = document.getElementById('contactError');
+        
+        if (value.length === 10) {
+            errorEl.classList.add('d-none');
+            this.contactNoInput.classList.remove('is-invalid');
+            this.contactNoInput.classList.add('is-valid');
+            return true;
+        } else if (value.length > 0) {
+            errorEl.classList.remove('d-none');
+            errorEl.textContent = 'Contact number must be exactly 10 digits';
+            this.contactNoInput.classList.add('is-invalid');
+            this.contactNoInput.classList.remove('is-valid');
+            return false;
+        } else {
+            errorEl.classList.add('d-none');
+            this.contactNoInput.classList.remove('is-invalid');
+            this.contactNoInput.classList.remove('is-valid');
+            return false;
+        }
+    }
+
+    updateFormCompletion() {
+        const fields = [
+            this.serialNoInput,
+            this.dateInput,
+            this.candidateNameInput,
+            this.contactNoInput,
+            this.batchIdInput,
+            this.trainerInput
+        ];
+        
+        let completed = 0;
+        fields.forEach(field => {
+            if (field.value.trim()) completed++;
+        });
+        
+        // Add photo if captured
+        if (this.photoData) completed++;
+        
+        const percentage = Math.round((completed / (fields.length + 1)) * 100);
+        
+        this.formProgress.style.width = `${percentage}%`;
+        this.formProgress.setAttribute('aria-valuenow', percentage);
+        this.formProgress.textContent = `${percentage}%`;
+        this.progressText.textContent = `Form completion: ${percentage}%`;
+        
+        // Update photo status text
+        this.photoStatusText.textContent = this.photoData ? 
+            'Photo: Captured ✓' : 'Photo: Not captured';
+        
+        // Update progress bar color
+        if (percentage < 30) {
+            this.formProgress.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+        } else if (percentage < 70) {
+            this.formProgress.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
+        } else if (percentage < 100) {
+            this.formProgress.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
+        } else {
+            this.formProgress.className = 'progress-bar progress-bar-striped progress-bar-animated bg-success';
+        }
+    }
+
+    validateForm() {
+        // Serial Number
+        const serialNo = this.serialNoInput.value.trim();
+        if (!serialNo) {
+            this.showError('Please enter Serial Number');
+            return false;
+        }
+        
+        // Check for duplicate serial number
+        const isDuplicate = this.allRecords.some(record => 
+            record.serialNo.toLowerCase() === serialNo.toLowerCase()
+        );
+        
+        if (isDuplicate) {
+            this.showError('Serial Number already exists. Please use a different one.');
+            return false;
+        }
+        
+        // Date
+        const date = this.dateInput.value;
+        if (!date) {
+            this.showError('Please select a date');
+            return false;
+        }
+        
+        // Name
+        const name = this.candidateNameInput.value.trim();
+        if (!name || name.length < 2) {
+            this.showError('Please enter a valid name (minimum 2 characters)');
+            return false;
+        }
+        
+        // Contact Number
+        if (!this.validateContactNo()) {
+            this.showError('Please enter a valid 10-digit contact number');
+            return false;
+        }
+        
+        // Batch ID
+        const batchId = this.batchIdInput.value.trim();
+        if (!batchId) {
+            this.showError('Please enter Batch ID');
+            return false;
+        }
+        
+        // Trainer
+        const trainer = this.trainerInput.value.trim();
+        if (!trainer) {
+            this.showError('Please enter Trainer name');
+            return false;
+        }
+        
+        return true;
+    }
+
+    // =============== CAMERA FUNCTIONS ===============
+
+    async startCamera() {
+        try {
+            // Stop if already active
+            if (this.stream) {
+                this.stream.getTracks().forEach(track => track.stop());
+            }
+            
+            // Get camera access
+            this.stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false 
+            });
+            
+            this.video.srcObject = this.stream;
+            this.video.style.display = 'block';
+            this.cameraPreview.querySelector('.placeholder-text').style.display = 'none';
+            this.capturedPhoto.style.display = 'none';
+            
+            this.isCameraActive = true;
+            
+            this.updatePhotoStatus('Camera started. Click "Capture Photo" to take picture.', 'success');
+            
+        } catch (error) {
+            console.error('Camera error:', error);
+            this.updatePhotoStatus('Camera access denied. Please allow camera permissions or upload a photo.', 'error');
+            
+            // Fallback to file upload
+            this.fileInput.click();
+        }
+    }
+
+    capturePhoto() {
+        if (!this.stream || !this.isCameraActive) return;
+        
+        // Set canvas dimensions
+        this.canvas.width = this.video.videoWidth;
+        this.canvas.height = this.video.videoHeight;
+        
+        // Draw video frame to canvas
+        const context = this.canvas.getContext('2d');
+        context.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        
+        // Convert to data URL with compression
+        this.photoData = this.canvas.toDataURL('image/jpeg', 0.7);
+        
+        // Display captured photo
+        this.photoOutput.src = this.photoData;
+        this.video.style.display = 'none';
+        this.capturedPhoto.style.display = 'flex';
+        
+        // Stop camera
+        this.stopCamera();
+        
+        this.updatePhotoStatus('Photo captured successfully!', 'success');
+        this.updateFormCompletion();
+    }
+
+    stopCamera() {
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+        }
+        
+        this.video.style.display = 'none';
+        this.cameraPreview.querySelector('.placeholder-text').style.display = 'block';
+        this.startCameraBtn.style.display = 'block';
+        this.captureBtn.style.display = 'none';
+        this.stopCameraBtn.style.display = 'none';
+        
+        this.isCameraActive = false;
+    }
+
+    retakePhoto() {
+        this.photoData = null;
+        this.capturedPhoto.style.display = 'none';
+        this.startCamera();
+    }
+
+    handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validate file type
+        if (!CONFIG.ALLOWED_IMAGE_TYPES.includes(file.type)) {
+            this.updatePhotoStatus('Please upload an image file (JPG, PNG, WEBP)', 'error');
+            return;
+        }
+        
+        // Validate file size
+        if (file.size > CONFIG.MAX_PHOTO_SIZE) {
+            this.updatePhotoStatus(`File size should be less than ${CONFIG.MAX_PHOTO_SIZE / (1024 * 1024)}MB`, 'error');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.photoData = e.target.result;
+            this.photoOutput.src = this.photoData;
+            
+            // Display photo
+            this.capturedPhoto.style.display = 'flex';
+            this.video.style.display = 'none';
+            this.cameraPreview.querySelector('.placeholder-text').style.display = 'none';
+            
+            // Stop camera if active
+            if (this.stream) {
+                this.stopCamera();
+            }
+            
+            this.updatePhotoStatus('Photo uploaded successfully!', 'success');
+            this.updateFormCompletion();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    updatePhotoStatus(message, type) {
+        let icon, alertClass;
+        
+        switch(type) {
+            case 'success':
+                icon = 'check-circle';
+                alertClass = 'alert-success';
+                break;
+            case 'error':
+                icon = 'exclamation-triangle';
+                alertClass = 'alert-danger';
+                break;
+            default:
+                icon = 'info-circle';
+                alertClass = 'alert-info';
+        }
+        
+        this.photoStatus.innerHTML = `
+            <div class="alert ${alertClass}">
+                <i class="fas fa-${icon}"></i> ${message}
+            </div>
+        `;
+    }
+
+    // =============== FORM SUBMISSION ===============
+
+    async handleSubmit(e) {
+        e.preventDefault();
+        
+        if (!this.validateForm()) return;
+        
+        // Show loading
+        const submitBtn = document.getElementById('submitBtn');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+        submitBtn.disabled = true;
+        
+        // Prepare data
+        const formData = {
+            serialNo: this.serialNoInput.value.trim(),
+            date: this.dateInput.value,
+            candidateName: this.candidateNameInput.value.trim(),
+            contactNo: this.contactNoInput.value.trim(),
+            batchId: this.batchIdInput.value.trim(),
+            trainer: this.trainerInput.value.trim(),
+            photo: this.photoData || '',
+            timestamp: new Date().toISOString(),
+            id: Date.now() // Unique ID for local storage
+        };
+        
+        try {
+            // Send to Google Sheets (if configured)
+            if (CONFIG.GOOGLE_SCRIPT_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
+                await this.sendToGoogleSheets(formData);
+            }
+            
+            // Save to local storage
+            this.saveToLocalStorage(formData);
+            
+            // Show success
+            setTimeout(() => {
+                this.showSuccessModal(formData);
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                
+                // Reset form
+                this.resetForm();
+                
+                // Reload data
+                this.loadRecords();
+                
+            }, 1500);
+            
+        } catch (error) {
+            console.error('Submission error:', error);
+            this.showError('Failed to submit. Please try again.');
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+
+    async sendToGoogleSheets(data) {
+        try {
+            const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Google Sheets submission failed:', error);
+            // Continue with local storage as fallback
+        }
+    }
+
+    // =============== LOCAL STORAGE ===============
+
+    saveToLocalStorage(data) {
+        this.allRecords.push(data);
+        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(this.allRecords));
+        
+        // Update unique sets
+        this.uniqueTrainers.add(data.trainer);
+        this.uniqueBatches.add(data.batchId);
+        
+        // Update dropdowns
+        this.updateFilterDropdowns();
+    }
+
+    loadFromLocalStorage() {
+        const stored = localStorage.getItem(CONFIG.LOCAL_STORAGE_KEY);
+        this.allRecords = stored ? JSON.parse(stored) : [];
+        this.filteredRecords = [...this.allRecords];
+        
+        // Build unique sets
+        this.allRecords.forEach(record => {
+            this.uniqueTrainers.add(record.trainer);
+            this.uniqueBatches.add(record.batchId);
+        });
+        
+        // Update dropdowns
+        this.updateFilterDropdowns();
+    }
+
+    updateFilterDropdowns() {
+        // Update trainer dropdown
+        const trainerSelect = this.filterTrainer;
+        trainerSelect.innerHTML = '<option value="">All Trainers</option>';
+        this.uniqueTrainers.forEach(trainer => {
+            const option = document.createElement('option');
+            option.value = trainer;
+            option.textContent = trainer;
+            trainerSelect.appendChild(option);
+        });
+        
+        // Update batch dropdown
+        const batchSelect = this.filterBatch;
+        batchSelect.innerHTML = '<option value="">All Batches</option>';
+        this.uniqueBatches.forEach(batch => {
+            const option = document.createElement('option');
+            option.value = batch;
+            option.textContent = batch;
+            batchSelect.appendChild(option);
+        });
+    }
+
+    // =============== DATA TABLE FUNCTIONS ===============
+
+    loadRecords() {
+        this.tableLoader.style.display = 'block';
+        this.noData.classList.add('d-none');
+        
+        setTimeout(() => {
+            this.applyFilters();
+            this.tableLoader.style.display = 'none';
+        }, 500);
+    }
+
+    applyFilters() {
+        const fromDate = this.filterFromDate.value;
+        const toDate = this.filterToDate.value;
+        const trainer = this.filterTrainer.value;
+        const batch = this.filterBatch.value;
+        
+        this.filteredRecords = this.allRecords.filter(record => {
+            let match = true;
+            
+            // Filter by date range
+            if (fromDate) {
+                const recordDate = new Date(record.date).setHours(0, 0, 0, 0);
+                const filterFrom = new Date(fromDate).setHours(0, 0, 0, 0);
+                match = match && (recordDate >= filterFrom);
+            }
+            
+            if (toDate) {
+                const recordDate = new Date(record.date).setHours(23, 59, 59, 999);
+                const filterTo = new Date(toDate).setHours(23, 59, 59, 999);
+                match = match && (recordDate <= filterTo);
+            }
+            
+            // Filter by trainer
+            if (trainer) {
+                match = match && (record.trainer === trainer);
+            }
+            
+            // Filter by batch
+            if (batch) {
+                match = match && (record.batchId === batch);
+            }
+            
+            return match;
+        });
+        
+        this.populateTable();
+    }
+
+    populateTable() {
+        this.tableBody.innerHTML = '';
+        
+        if (this.filteredRecords.length === 0) {
+            this.noData.classList.remove('d-none');
+            return;
+        }
+        
+        this.noData.classList.add('d-none');
+        
+        this.filteredRecords.forEach((record, index) => {
+            const row = document.createElement('tr');
+            
+            // Format date
+            const dateObj = new Date(record.date);
+            const formattedDate = dateObj.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+            
+            // Photo cell
+            let photoCell = '<td><i class="fas fa-times text-danger"></i></td>';
+            if (record.photo) {
+                photoCell = `
+                    <td>
+                        <img src="${record.photo}" 
+                             alt="Student Photo" 
+                             class="photo-thumbnail"
+                             onclick="app.viewPhoto('${record.photo}')"
+                             style="cursor: pointer;">
+                    </td>
+                `;
+            }
+            
+            row.innerHTML = `
+                <td><strong class="text-primary">${record.serialNo}</strong></td>
+                <td>${formattedDate}</td>
+                <td>${record.candidateName}</td>
+                <td>${record.contactNo}</td>
+                <td><span class="badge bg-primary">${record.batchId}</span></td>
+                <td>${record.trainer}</td>
+                ${photoCell}
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.editRecord(${record.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="app.deleteRecord(${record.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            
+            this.tableBody.appendChild(row);
+        });
+    }
+
+    clearFilters() {
+        const today = new Date().toISOString().split('T')[0];
+        const firstDay = new Date();
+        firstDay.setDate(1);
+        
+        this.filterFromDate.value = firstDay.toISOString().split('T')[0];
+        this.filterToDate.value = today;
+        this.filterTrainer.value = '';
+        this.filterBatch.value = '';
+        
+        this.applyFilters();
+        this.showToast('Filters cleared', 'info');
+    }
+
+    // =============== EXPORT & PRINT ===============
+
+    exportToExcel() {
+        if (this.filteredRecords.length === 0) {
+            this.showError('No data to export');
+            return;
+        }
+        
+        // Prepare data for export
+        const exportData = this.filteredRecords.map(record => ({
+            'Serial No': record.serialNo,
+            'Date': new Date(record.date).toLocaleDateString('en-US'),
+            'Name': record.candidateName,
+            'Contact': record.contactNo,
+            'Batch ID': record.batchId,
+            'Trainer': record.trainer,
+            'Photo Available': record.photo ? 'Yes' : 'No',
+            'Registration Time': new Date(record.timestamp).toLocaleString()
+        }));
+        
+        // Create worksheet
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Student Data');
+        
+        // Generate file name
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const fileName = `Student_Registrations_${timestamp}.xlsx`;
+        
+        // Save file
+        XLSX.writeFile(wb, fileName);
+        
+        this.showToast('Data exported successfully!', 'success');
+    }
+
+    printFilteredData() {
+        if (this.filteredRecords.length === 0) {
+            this.showError('No data to print');
+            return;
+        }
+        
+        const printSection = document.getElementById('printSection');
+        
+        // Create print content
+        let printContent = `
+            <div style="padding: 40px; font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto;">
+                <div style="text-align: center; margin-bottom: 40px; border-bottom: 3px solid #2c3e50; padding-bottom: 20px;">
+                    <h1 style="color: #2c3e50; margin-bottom: 10px;">
+                        <i class="fas fa-user-graduate"></i> Student Registration Data
+                    </h1>
+                    <p style="color: #666; font-size: 14px;">
+                        Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+                    </p>
+                </div>
+                
+                <div style="margin-bottom: 30px; background: #f8f9fa; padding: 20px; border-radius: 10px;">
+                    <h3 style="color: #2c3e50; margin-bottom: 15px; font-size: 18px;">Filter Summary</h3>
+                    <p style="color: #666; margin: 5px 0;">
+                        <strong>Date Range:</strong> ${this.filterFromDate.value} to ${this.filterToDate.value}
+                    </p>
+                    <p style="color: #666; margin: 5px 0;">
+                        <strong>Trainer:</strong> ${this.filterTrainer.value || 'All Trainers'}
+                    </p>
+                    <p style="color: #666; margin: 5px 0;">
+                        <strong>Batch:</strong> ${this.filterBatch.value || 'All Batches'}
+                    </p>
+                    <p style="color: #666; margin: 5px 0;">
+                        <strong>Total Records:</strong> ${this.filteredRecords.length}
+                    </p>
+                </div>
+                
+                <table border="1" cellpadding="10" cellspacing="0" 
+                       style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px;">
+                    <thead>
+                        <tr style="background-color: #2c3e50; color: white;">
+                            <th style="border: 1px solid #ddd; padding: 12px;">S.No</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Date</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Name</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Contact</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Batch ID</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Trainer</th>
+                            <th style="border: 1px solid #ddd; padding: 12px;">Photo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        this.filteredRecords.forEach((record, index) => {
+            const formattedDate = new Date(record.date).toLocaleDateString('en-US');
+            
+            printContent += `
+                <tr style="${index % 2 === 0 ? 'background-color: #f8f9fa;' : ''}">
+                    <td style="border: 1px solid #ddd; padding: 10px;">${record.serialNo}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px;">${formattedDate}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px;">${record.candidateName}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px;">${record.contactNo}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px;">${record.batchId}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px;">${record.trainer}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">
+                        ${record.photo ? '✓' : '✗'}
+                    </td>
+                </tr>
+            `;
+        });
+        
+        printContent += `
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center;">
+                    <p style="color: #666; font-size: 12px;">
+                        © ${new Date().getFullYear()} Student Registration Management System
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        printSection.innerHTML = printContent;
+        
+        // Trigger print
+        window.print();
+    }
+
+    printRegistration() {
+        const serialNo = document.getElementById('modalSerial').textContent;
+        const name = document.getElementById('modalName').textContent;
+        const date = document.getElementById('modalDate').textContent;
+        const batch = document.getElementById('modalBatch').textContent;
+        const trainer = document.getElementById('modalTrainer').textContent;
+        
+        const printSection = document.getElementById('printSection');
+        
+        const printContent = `
+            <div style="padding: 50px; font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+                <div style="text-align: center; margin-bottom: 40px;">
+                    <h1 style="color: #2c3e50; border-bottom: 4px solid #3498db; padding-bottom: 15px; display: inline-block;">
+                        <i class="fas fa-user-graduate"></i> Registration Confirmation
+                    </h1>
+                </div>
+                
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                           padding: 40px; border-radius: 15px; margin-bottom: 30px; 
+                           border: 2px solid #3498db; position: relative;">
+                    <div style="position: absolute; top: -20px; left: 50%; transform: translateX(-50%); 
+                               background: #3498db; color: white; padding: 10px 30px; 
+                               border-radius: 25px; font-weight: bold;">
+                        OFFICIAL REGISTRATION
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+                        <div>
+                            <h3 style="color: #2c3e50; margin-bottom: 20px; font-size: 18px;">
+                                <i class="fas fa-id-card"></i> Registration Details
+                            </h3>
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Registration ID</div>
+                                <div style="color: #2c3e50; font-size: 20px; font-weight: bold;">${serialNo}</div>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Registration Date</div>
+                                <div style="color: #2c3e50; font-size: 16px;">${date}</div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3 style="color: #2c3e50; margin-bottom: 20px; font-size: 18px;">
+                                <i class="fas fa-user"></i> Student Details
+                            </h3>
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Student Name</div>
+                                <div style="color: #2c3e50; font-size: 20px; font-weight: bold;">${name}</div>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Batch ID</div>
+                                <div style="color: #2c3e50; font-size: 16px; font-weight: bold;">${batch}</div>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Assigned Trainer</div>
+                                <div style="color: #2c3e50; font-size: 16px;">${trainer}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 40px; padding: 25px; background: #f8f9fa; border-radius: 10px; 
+                           border-left: 5px solid #3498db;">
+                    <h4 style="color: #2c3e50; margin-bottom: 15px;">
+                        <i class="fas fa-info-circle"></i> Important Information
+                    </h4>
+                    <ul style="color: #666; line-height: 1.8; margin: 0; padding-left: 20px;">
+                        <li>This document serves as official confirmation of registration</li>
+                        <li>Please keep this document for your records</li>
+                        <li>Present this document for any verification purposes</li>
+                        <li>For any queries, contact the administration office</li>
+                    </ul>
+                </div>
+                
+                <div style="text-align: center; color: #666; margin-top: 50px; padding-top: 30px; 
+                           border-top: 1px solid #ddd;">
+                    <p>Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+                    <p style="font-size: 12px;">© ${new Date().getFullYear()} Student Registration Management System</p>
+                </div>
+            </div>
+        `;
+        
+        printSection.innerHTML = printContent;
+        
+        window.print();
+    }
+
+    // =============== ANALYTICS FUNCTIONS ===============
+
+    updateAnalytics() {
+        this.updateStats();
+        this.updateCharts();
+    }
+
+    updateStats() {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Total Students
+        this.totalStudentsEl.textContent = this.allRecords.length;
+        
+        // Total Trainers
+        this.totalTrainersEl.textContent = this.uniqueTrainers.size;
+        
+        // Total Batches
+        this.totalBatchesEl.textContent = this.uniqueBatches.size;
+        
+        // Today's Registrations
+        const todayCount = this.allRecords.filter(record => 
+            record.date === today
+        ).length;
+        this.todayRegistrationsEl.textContent = todayCount;
+    }
+
+    updateCharts() {
+        this.updateBatchChart();
+        this.updateMonthlyChart();
+    }
+
+    updateBatchChart() {
+        const ctx = document.getElementById('batchChart').getContext('2d');
+        
+        // Count records per batch
+        const batchCounts = {};
+        this.allRecords.forEach(record => {
+            batchCounts[record.batchId] = (batchCounts[record.batchId] || 0) + 1;
+        });
+        
+        const labels = Object.keys(batchCounts);
+        const data = Object.values(batchCounts);
+        
+        // Colors for chart
+        const backgroundColors = [
+            'rgba(52, 152, 219, 0.7)',
+            'rgba(46, 204, 113, 0.7)',
+            'rgba(155, 89, 182, 0.7)',
+            'rgba(241, 196, 15, 0.7)',
+            'rgba(230, 126, 34, 0.7)',
+            'rgba(231, 76, 60, 0.7)',
+        ];
+        
+        const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
+        
+        if (this.batchChart) {
+            this.batchChart.destroy();
+        }
+        
+        this.batchChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Distribution of Students by Batch'
+                    }
+                }
+            }
+        });
+    }
+
+    updateMonthlyChart() {
+        const ctx = document.getElementById('monthlyChart').getContext('2d');
+        
+        // Count records per month
+        const monthlyCounts = {};
+        this.allRecords.forEach(record => {
+            const date = new Date(record.date);
+            const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+            monthlyCounts[monthYear] = (monthlyCounts[monthYear] || 0) + 1;
+        });
+        
+        // Sort by date
+        const sortedEntries = Object.entries(monthlyCounts).sort();
+        const labels = sortedEntries.map(([month]) => {
+            const [year, monthNum] = month.split('-');
+            return `${new Date(year, monthNum - 1).toLocaleString('default', { month: 'short' })} ${year}`;
+        });
+        const data = sortedEntries.map(([, count]) => count);
+        
+        if (this.monthlyChart) {
+            this.monthlyChart.destroy();
+        }
+        
+        this.monthlyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Registrations',
+                    data: data,
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    borderColor: 'rgba(52, 152, 219, 1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Monthly Registration Trend'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // =============== UTILITY FUNCTIONS ===============
+
+    addNewBatch() {
+        const batchValue = this.batchIdInput.value.trim();
+        
+        if (!batchValue) {
+            this.showError('Please enter a batch ID');
+            return;
+        }
+        
+        // Add to datalist if not exists
         const datalist = document.getElementById('batchOptions');
         const exists = Array.from(datalist.options).some(opt => opt.value === batchValue);
         
@@ -225,23 +1054,21 @@ function addNewBatch() {
             datalist.appendChild(option);
         }
         
-        Swal.fire({
-            icon: 'success',
-            title: 'Batch Added',
-            text: `"${batchValue}" has been added to the list`,
-            timer: 2000,
-            showConfirmButton: false
-        });
+        this.uniqueBatches.add(batchValue);
+        this.updateFilterDropdowns();
+        
+        this.showToast('Batch added successfully!', 'success');
     }
-}
 
-// Add New Trainer Option
-function addNewTrainer() {
-    const trainerInput = document.getElementById('trainer');
-    const trainerValue = trainerInput.value.trim();
-    
-    if (trainerValue) {
-        // Add to datalist if not already present
+    addNewTrainer() {
+        const trainerValue = this.trainerInput.value.trim();
+        
+        if (!trainerValue) {
+            this.showError('Please enter a trainer name');
+            return;
+        }
+        
+        // Add to datalist if not exists
         const datalist = document.getElementById('trainerOptions');
         const exists = Array.from(datalist.options).some(opt => opt.value === trainerValue);
         
@@ -251,262 +1078,178 @@ function addNewTrainer() {
             datalist.appendChild(option);
         }
         
-        Swal.fire({
-            icon: 'success',
-            title: 'Trainer Added',
-            text: `"${trainerValue}" has been added to the list`,
-            timer: 2000,
-            showConfirmButton: false
-        });
-    }
-}
-
-// Form Validation
-function validateForm() {
-    // Date validation
-    const date = document.getElementById('date').value;
-    if (!date) {
-        showError('Please select a date');
-        return false;
-    }
-    
-    // Name validation
-    const name = document.getElementById('candidateName').value.trim();
-    if (!name || name.length < 2) {
-        showError('Please enter a valid name (minimum 2 characters)');
-        return false;
-    }
-    
-    // Contact number validation
-    const contact = document.getElementById('contactNo').value.trim();
-    const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(contact)) {
-        showError('Please enter a valid 10-digit mobile number');
-        return false;
-    }
-    
-    // Batch ID validation
-    const batch = document.getElementById('batchId').value.trim();
-    if (!batch) {
-        showError('Please select or enter a Batch ID');
-        return false;
-    }
-    
-    // Trainer validation
-    const trainer = document.getElementById('trainer').value.trim();
-    if (!trainer) {
-        showError('Please select or enter a Trainer');
-        return false;
-    }
-    
-    // Photo validation
-    if (!photoData) {
-        const result = confirm('No photo has been captured. Do you want to proceed without a photo?');
-        if (!result) return false;
-    }
-    
-    return true;
-}
-
-// Show error message
-function showError(message) {
-    Swal.fire({
-        icon: 'error',
-        title: 'Validation Error',
-        text: message,
-        confirmButtonColor: '#dc3545'
-    });
-}
-
-// Format date for display
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-}
-
-// Submit Form
-form.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    if (!validateForm()) return;
-    
-    // Show loading
-    const submitBtn = document.getElementById('submitBtn');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
-    submitBtn.disabled = true;
-    
-    // Prepare form data
-    formData = {
-        sno: `REG${Date.now()}`,
-        date: document.getElementById('date').value,
-        candidateName: document.getElementById('candidateName').value.trim(),
-        contactNo: document.getElementById('contactNo').value.trim(),
-        batchId: document.getElementById('batchId').value.trim(),
-        trainer: document.getElementById('trainer').value.trim(),
-        photo: photoData || ''
-    };
-    
-    try {
-        // Submit to Google Sheets via Apps Script
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors', // For cross-origin requests
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
-        });
+        this.uniqueTrainers.add(trainerValue);
+        this.updateFilterDropdowns();
         
-        // Since we're using no-cors, we can't read the response
-        // Show success message
-        setTimeout(() => {
-            showSuccessModal(formData);
-            addToRecentRegistrations(formData);
-            submitBtn.innerHTML = originalText;
-            submitBtn.disabled = false;
-        }, 1500);
-        
-    } catch (error) {
-        console.error('Submission error:', error);
-        
-        // Fallback: Show success even if network fails (for demo)
-        setTimeout(() => {
-            showSuccessModal(formData);
-            addToRecentRegistrations(formData);
-            submitBtn.innerHTML = originalText;
-            submitBtn.disabled = false;
-        }, 1500);
+        this.showToast('Trainer added successfully!', 'success');
     }
-});
 
-// Show Success Modal
-function showSuccessModal(data) {
-    document.getElementById('modalSno').textContent = data.sno;
-    document.getElementById('modalName').textContent = data.candidateName;
-    document.getElementById('modalDate').textContent = formatDate(data.date);
-    
-    const modal = new bootstrap.Modal(document.getElementById('successModal'));
-    modal.show();
-}
-
-// Add to Recent Registrations Table
-function addToRecentRegistrations(data) {
-    const tableBody = document.querySelector('#recentTable tbody');
-    const newRow = document.createElement('tr');
-    
-    newRow.innerHTML = `
-        <td>${data.sno}</td>
-        <td>${formatDate(data.date)}</td>
-        <td>${data.candidateName}</td>
-        <td>${data.contactNo}</td>
-        <td>${data.batchId}</td>
-        <td>${data.trainer}</td>
-        <td>${data.photo ? 
-            '<i class="fas fa-check text-success"></i>' : 
-            '<i class="fas fa-times text-danger"></i>'}</td>
-    `;
-    
-    tableBody.insertBefore(newRow, tableBody.firstChild);
-    
-    // Limit to 5 recent entries
-    if (tableBody.children.length > 5) {
-        tableBody.removeChild(tableBody.lastChild);
-    }
-}
-
-// Reset Form
-function resetForm() {
-    if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
-        form.reset();
-        document.getElementById('date').valueAsDate = new Date();
+    editRecord(id) {
+        const record = this.allRecords.find(r => r.id === id);
         
-        // Reset photo
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
+        if (!record) {
+            this.showError('Record not found');
+            return;
         }
-        photoData = null;
-        video.classList.add('d-none');
-        capturedPhoto.style.display = 'none';
-        cameraPreview.querySelector('.placeholder-text').classList.remove('d-none');
-        startCameraBtn.classList.remove('d-none');
-        captureBtn.classList.add('d-none');
-        stopCameraBtn.classList.add('d-none');
         
-        // Reset status
-        photoStatus.innerHTML = `
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> 
-                Please capture or upload a photo
-            </div>
-        `;
+        // Fill form with record data
+        this.serialNoInput.value = record.serialNo;
+        this.dateInput.value = record.date;
+        this.candidateNameInput.value = record.candidateName;
+        this.contactNoInput.value = record.contactNo;
+        this.batchIdInput.value = record.batchId;
+        this.trainerInput.value = record.trainer;
         
-        // Reset progress
-        calculateFormCompletion();
+        if (record.photo) {
+            this.photoData = record.photo;
+            this.photoOutput.src = record.photo;
+            this.capturedPhoto.style.display = 'flex';
+            this.updatePhotoStatus('Photo loaded from record', 'success');
+        }
         
-        // Close modal if open
-        const modal = bootstrap.Modal.getInstance(document.getElementById('successModal'));
-        if (modal) modal.hide();
+        // Update form status
+        this.updateFormCompletion();
+        
+        // Switch to registration tab
+        document.getElementById('registration-tab').click();
+        
+        // Scroll to form
+        this.serialNoInput.scrollIntoView({ behavior: 'smooth' });
+        
+        this.showToast('Record loaded for editing', 'info');
+    }
+
+    deleteRecord(id) {
+        Swal.fire({
+            title: 'Are you sure?',
+            text: "You won't be able to revert this!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                this.allRecords = this.allRecords.filter(r => r.id !== id);
+                localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(this.allRecords));
+                
+                this.loadRecords();
+                this.updateAnalytics();
+                
+                this.showToast('Record deleted successfully!', 'success');
+            }
+        });
+    }
+
+    viewPhoto(photoData) {
+        document.getElementById('modalPhoto').src = photoData;
+        this.photoModal.show();
+    }
+
+    resetForm() {
+        Swal.fire({
+            title: 'Reset Form?',
+            text: "All entered data will be lost",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, reset it!',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                this.form.reset();
+                this.dateInput.value = new Date().toISOString().split('T')[0];
+                
+                // Reset photo
+                this.photoData = null;
+                this.capturedPhoto.style.display = 'none';
+                this.video.style.display = 'none';
+                this.cameraPreview.querySelector('.placeholder-text').style.display = 'block';
+                this.startCameraBtn.style.display = 'block';
+                this.captureBtn.style.display = 'none';
+                this.stopCameraBtn.style.display = 'none';
+                
+                // Stop camera if active
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+                
+                this.updatePhotoStatus('Please capture or upload a photo', 'info');
+                this.updateFormCompletion();
+                
+                // Reset validation styles
+                document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
+                    el.classList.remove('is-valid', 'is-invalid');
+                });
+                
+                this.showToast('Form reset successfully', 'success');
+            }
+        });
+    }
+
+    showSuccessModal(data) {
+        document.getElementById('modalSerial').textContent = data.serialNo;
+        document.getElementById('modalName').textContent = data.candidateName;
+        document.getElementById('modalBatch').textContent = data.batchId;
+        document.getElementById('modalTrainer').textContent = data.trainer;
+        
+        const dateObj = new Date(data.date);
+        document.getElementById('modalDate').textContent = dateObj.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        
+        this.successModal.show();
+    }
+
+    showError(message) {
+        document.getElementById('errorTitle').textContent = 'Error Occurred';
+        document.getElementById('errorMessage').textContent = message;
+        this.errorModal.show();
+    }
+
+    showToast(message, type = 'success') {
+        const Toast = Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            didOpen: (toast) => {
+                toast.addEventListener('mouseenter', Swal.stopTimer);
+                toast.addEventListener('mouseleave', Swal.resumeTimer);
+            }
+        });
+
+        Toast.fire({
+            icon: type,
+            title: message
+        });
     }
 }
 
-// Print Registration
-function printRegistration() {
-    const printContent = `
-        <html>
-        <head>
-            <title>Student Registration - ${formData.sno}</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 20px; }
-                .header { text-align: center; margin-bottom: 30px; }
-                .details { margin: 20px 0; }
-                .detail-row { margin-bottom: 10px; }
-                .photo-container { text-align: center; margin: 20px 0; }
-                .photo-container img { max-width: 200px; max-height: 200px; }
-                @media print {
-                    body { padding: 0; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h2>Student Registration Confirmation</h2>
-                <h3>Registration Number: ${formData.sno}</h3>
-            </div>
-            <div class="details">
-                <div class="detail-row"><strong>Date:</strong> ${formatDate(formData.date)}</div>
-                <div class="detail-row"><strong>Name:</strong> ${formData.candidateName}</div>
-                <div class="detail-row"><strong>Contact:</strong> ${formData.contactNo}</div>
-                <div class="detail-row"><strong>Batch ID:</strong> ${formData.batchId}</div>
-                <div class="detail-row"><strong>Trainer:</strong> ${formData.trainer}</div>
-            </div>
-            ${formData.photo ? `
-                <div class="photo-container">
-                    <h4>Student Photo:</h4>
-                    <img src="${formData.photo}" alt="Student Photo">
-                </div>
-            ` : ''}
-        </body>
-        </html>
-    `;
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-    printWindow.print();
-}
-
-// Initialize form validation on input
-const formInputs = form.querySelectorAll('input, select');
-formInputs.forEach(input => {
-    input.addEventListener('input', calculateFormCompletion);
-    input.addEventListener('change', calculateFormCompletion);
+// Initialize the application
+let app;
+document.addEventListener('DOMContentLoaded', () => {
+    app = new StudentRegistrationApp();
 });
 
-// Initialize form progress
-calculateFormCompletion();
+// Global functions for HTML onclick attributes
+function startCamera() { app.startCamera(); }
+function capturePhoto() { app.capturePhoto(); }
+function stopCamera() { app.stopCamera(); }
+function retakePhoto() { app.retakePhoto(); }
+function handleFileUpload(event) { app.handleFileUpload(event); }
+function addNewBatch() { app.addNewBatch(); }
+function addNewTrainer() { app.addNewTrainer(); }
+function resetForm() { app.resetForm(); }
+function applyFilters() { app.applyFilters(); }
+function exportToExcel() { app.exportToExcel(); }
+function printFilteredData() { app.printFilteredData(); }
+function clearFilters() { app.clearFilters(); }
+function printRegistration() { app.printRegistration(); }
