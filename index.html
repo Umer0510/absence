@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Registration System</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Bootstrap for better responsiveness -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-user-graduate"></i> Student Registration Form</h1>
+            <p class="subtitle">Register new students with photo capture</p>
+        </div>
+
+        <div class="card form-container">
+            <div class="card-body">
+                <form id="registrationForm">
+                    <div class="row">
+                        <!-- Left Column -->
+                        <div class="col-md-6">
+                            <!-- S.No (Auto Generated) -->
+                            <div class="form-group">
+                                <label for="sno"><i class="fas fa-hashtag"></i> Registration Number</label>
+                                <input type="text" class="form-control" id="sno" readonly 
+                                       placeholder="Auto-generated on submit">
+                                <small class="form-text text-muted">Unique ID will be generated automatically</small>
+                            </div>
+
+                            <!-- Date -->
+                            <div class="form-group">
+                                <label for="date"><i class="fas fa-calendar-alt"></i> Registration Date</label>
+                                <input type="date" class="form-control" id="date" required>
+                            </div>
+
+                            <!-- Candidate Name -->
+                            <div class="form-group">
+                                <label for="candidateName"><i class="fas fa-user"></i> Candidate Name</label>
+                                <input type="text" class="form-control" id="candidateName" 
+                                       placeholder="Enter full name" required>
+                            </div>
+
+                            <!-- Contact No -->
+                            <div class="form-group">
+                                <label for="contactNo"><i class="fas fa-phone"></i> Contact Number</label>
+                                <input type="tel" class="form-control" id="contactNo" 
+                                       placeholder="10-digit mobile number" 
+                                       pattern="[0-9]{10}" maxlength="10" required>
+                                <small class="form-text text-muted">Enter 10-digit mobile number only</small>
+                            </div>
+
+                            <!-- Batch ID -->
+                            <div class="form-group">
+                                <label for="batchId"><i class="fas fa-users"></i> Batch ID</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="batchId" 
+                                           list="batchOptions" placeholder="Select or type batch ID" required>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="addNewBatch()">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                                <datalist id="batchOptions">
+                                    <option value="BATCH2024A">
+                                    <option value="BATCH2024B">
+                                    <option value="BATCH2024C">
+                                    <option value="BATCH2024D">
+                                    <option value="BATCH2024E">
+                                </datalist>
+                            </div>
+
+                            <!-- Trainer -->
+                            <div class="form-group">
+                                <label for="trainer"><i class="fas fa-chalkboard-teacher"></i> Trainer</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="trainer" 
+                                           list="trainerOptions" placeholder="Select or type trainer name" required>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="addNewTrainer()">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                                <datalist id="trainerOptions">
+                                    <option value="Dr. John Smith">
+                                    <option value="Prof. Sarah Johnson">
+                                    <option value="Mr. Robert Brown">
+                                    <option value="Ms. Emily Davis">
+                                    <option value="Dr. Michael Wilson">
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <!-- Right Column - Photo Section -->
+                        <div class="col-md-6">
+                            <div class="photo-section">
+                                <h5><i class="fas fa-camera"></i> Student Photo</h5>
+                                
+                                <!-- Camera Preview -->
+                                <div class="camera-container">
+                                    <div class="camera-preview" id="cameraPreview">
+                                        <div class="placeholder-text">
+                                            <i class="fas fa-user-circle"></i>
+                                            <p>No photo captured</p>
+                                        </div>
+                                        <video id="video" class="d-none" autoplay playsinline></video>
+                                        <canvas id="canvas" class="d-none"></canvas>
+                                    </div>
+                                    
+                                    <!-- Captured Image Display -->
+                                    <div class="captured-photo" id="capturedPhoto" style="display: none;">
+                                        <img id="photoOutput" alt="Captured Photo">
+                                        <button type="button" class="btn btn-sm btn-danger retake-btn" 
+                                                onclick="retakePhoto()">
+                                            <i class="fas fa-redo"></i> Retake
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Camera Controls -->
+                                <div class="camera-controls">
+                                    <button type="button" class="btn btn-primary camera-btn" 
+                                            id="startCamera" onclick="startCamera()">
+                                        <i class="fas fa-camera"></i> Start Camera
+                                    </button>
+                                    
+                                    <button type="button" class="btn btn-success camera-btn d-none" 
+                                            id="captureBtn" onclick="capturePhoto()">
+                                        <i class="fas fa-camera-retro"></i> Capture Photo
+                                    </button>
+                                    
+                                    <button type="button" class="btn btn-warning camera-btn d-none" 
+                                            id="stopCamera" onclick="stopCamera()">
+                                        <i class="fas fa-stop-circle"></i> Stop Camera
+                                    </button>
+
+                                    <!-- Upload Option -->
+                                    <div class="upload-section">
+                                        <label class="btn btn-outline-secondary upload-label">
+                                            <i class="fas fa-upload"></i> Upload Photo
+                                            <input type="file" id="fileInput" accept="image/*" 
+                                                   class="d-none" onchange="handleFileUpload(event)">
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Photo Status -->
+                                <div class="photo-status" id="photoStatus">
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle"></i> 
+                                        Please capture or upload a photo
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Form Status -->
+                            <div class="form-status mt-3">
+                                <div class="progress">
+                                    <div class="progress-bar" id="formProgress" role="progressbar" 
+                                         style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    </div>
+                                </div>
+                                <small id="progressText" class="text-muted">Form completion: 0%</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="form-footer">
+                        <button type="submit" class="btn btn-success btn-lg submit-btn" id="submitBtn">
+                            <i class="fas fa-paper-plane"></i> Submit Registration
+                        </button>
+                        
+                        <button type="button" class="btn btn-outline-secondary btn-lg" onclick="resetForm()">
+                            <i class="fas fa-redo"></i> Reset Form
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Success Modal -->
+        <div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-check-circle"></i> Registration Successful!
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" 
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <div class="success-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h4 class="mt-3">Student Registered Successfully</h4>
+                        <div class="registration-details mt-4">
+                            <p><strong>Registration Number:</strong> <span id="modalSno"></span></p>
+                            <p><strong>Student Name:</strong> <span id="modalName"></span></p>
+                            <p><strong>Date:</strong> <span id="modalDate"></span></p>
+                        </div>
+                        <div class="mt-4">
+                            <button type="button" class="btn btn-primary" onclick="printRegistration()">
+                                <i class="fas fa-print"></i> Print Details
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" onclick="resetForm()">
+                                <i class="fas fa-plus"></i> Register Another
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions Panel -->
+        <div class="card instructions">
+            <div class="card-body">
+                <h5><i class="fas fa-info-circle"></i> Instructions</h5>
+                <ul>
+                    <li>All fields marked with * are mandatory</li>
+                    <li>Contact number must be exactly 10 digits</li>
+                    <li>Use camera button for live photo capture</li>
+                    <li>You can also upload a photo from your device</li>
+                    <li>Click + button to add new Batch/Trainer options</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recent Registrations -->
+        <div class="recent-registrations">
+            <h4><i class="fas fa-history"></i> Recent Registrations</h4>
+            <div class="table-responsive">
+                <table class="table" id="recentTable">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Date</th>
+                            <th>Name</th>
+                            <th>Contact</th>
+                            <th>Batch ID</th>
+                            <th>Trainer</th>
+                            <th>Photo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="script.js"></script>
+    <!-- Google Apps Script Web App URL will be inserted here -->
+    <script>
+        // Your Google Apps Script Web App URL
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxFVZD0r4__UmSPUJUchsqBx82PUOvYiTW2GN6q6u4rN93yUwuOXiWg_icXQL_4TtQ5/exec';
+    </script>
+</body>
+</html>
